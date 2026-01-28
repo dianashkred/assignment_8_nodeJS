@@ -49,7 +49,6 @@ class HtmlInjectTransform extends Transform {
     const text = chunk.toString('utf8');
     this._buffer += text;
 
-    // В задании сказано: достаточно проверить, что кусок содержит </body>
     if (!this._injected && this._buffer.includes('</body>')) {
       const updated = this._buffer.replace('</body>', `${LIVE_RELOAD_SCRIPT}\n</body>`);
       this.push(updated);
@@ -58,8 +57,6 @@ class HtmlInjectTransform extends Transform {
       return callback();
     }
 
-    // Чтобы не держать слишком много в памяти, пушим частями
-    // но оставляем "хвост" (на случай, если </body> разорвётся)
     if (this._buffer.length > 64 * 1024 && !this._injected) {
       this.push(this._buffer.slice(0, 32 * 1024));
       this._buffer = this._buffer.slice(32 * 1024);
@@ -70,8 +67,6 @@ class HtmlInjectTransform extends Transform {
 
   _flush(callback) {
     if (!this._injected) {
-      // Если </body> не встретился (редко, но возможно),
-      // добавим скрипт в конец файла, чтобы WS всё равно подключился.
       this.push(this._buffer + LIVE_RELOAD_SCRIPT);
       this._buffer = '';
       this._injected = true;
@@ -101,18 +96,14 @@ function isPathInside(parent, child) {
 }
 
 function resolveRequestToFilePath(urlPathname) {
-  // убираем query string
   const cleanPath = urlPathname.split('?')[0].split('#')[0];
 
-  // / -> /index.html (удобно для проверки)
   const normalized = cleanPath === '/' ? '/index.html' : cleanPath;
 
   const decoded = safeDecodeURIComponent(normalized);
 
-  // строим путь внутри TARGET_DIR
   const candidate = path.join(TARGET_DIR, decoded);
 
-  // защита от path traversal
   if (!isPathInside(TARGET_DIR, candidate)) {
     return null;
   }
@@ -152,7 +143,6 @@ const server = http.createServer((req, res) => {
     const readStream = fs.createReadStream(filePath);
 
     readStream.on('error', () => {
-      // если файл внезапно стал недоступен
       if (!res.headersSent) {
         sendError(res, 500, 'Internal Server Error');
       } else {
@@ -160,8 +150,7 @@ const server = http.createServer((req, res) => {
       }
     });
 
-    // Инъекция ТОЛЬКО в HTML
-    if (ext === '.html') {
+   if (ext === '.html') {
       readStream.pipe(new HtmlInjectTransform()).pipe(res);
     } else {
       readStream.pipe(res);
@@ -169,9 +158,7 @@ const server = http.createServer((req, res) => {
   });
 });
 
-/**
- * WebSocket server (ws) поверх того же HTTP сервера
- */
+
 const wss = new WebSocket.Server({ server });
 
 function broadcastReload() {
@@ -182,10 +169,6 @@ function broadcastReload() {
   }
 }
 
-/**
- * fs.watch: слежение за target/ (recursively)
- * По заданию: primary focus event name is "change"
- */
 fs.watch(TARGET_DIR, { recursive: true }, (eventType) => {
   if (eventType === 'change') {
     broadcastReload();
